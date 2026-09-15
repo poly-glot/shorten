@@ -1,0 +1,25 @@
+[package]
+name = "mgmt"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "mgmt"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mgmt"
+path = "src/main.rs"
+
+[dependencies]
+aws-sdk-dynamodb = { workspace = true }
+chrono = { workspace = true }
+lambda_http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+shared = { path = "../../crates/shared" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+shared = { path = "../../crates/shared", features = ["testing"] }

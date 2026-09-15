@@ -1,0 +1,60 @@
+:root {
+    --accent: #1c90e3;
+    --bg: #fff;
+    --bg-offset: #f8f8f6;
+    --border: rgb(0 0 0 / 12%);
+    --border-strong: rgb(0 0 0 / 32%);
+    --danger: #b3261e;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "SF Mono", "Fira Code", "Roboto Mono", monospace;
+    --ok: #146c43;
+    --text-on-fill: #fff;
+    --text-primary: #111;
+    --text-secondary: #555;
+    --text-tertiary: #727272;
+    --warn: #8a5a00;
+}
+
+h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    margin: 0 0 12px;
+
+    @media (min-width: 720px) {
+        font-size: 2.75rem;
+    }
+}
+
+h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -.01em;
+    margin: 0 0 8px;
+}
+
+h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 24px 0 8px;
+}
+
+.hint {
+    color: var(--text-tertiary);
+    font-size: .8rem;
+    font-weight: 400;
+    margin: 6px 0 0;
+    max-width: 62ch;
+}
+
+.lede {
+    color: var(--text-secondary);
+    font-size: 1.05rem;
+    margin: 0 0 28px;
+    max-width: 52ch;
+}
+
+.mono {
+    font-family: var(--font-mono);
+}

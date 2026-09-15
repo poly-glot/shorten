@@ -1,0 +1,67 @@
+fieldset {
+    border: 0;
+    margin: 0;
+    min-width: 0;
+    padding: 0;
+}
+
+input {
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    color: var(--text-primary);
+    font: inherit;
+    padding: 10px 12px;
+    width: 100%;
+}
+
+input[type="checkbox"] {
+    width: auto;
+}
+
+input:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 1px;
+}
+
+input:read-only {
+    background: var(--bg-offset);
+}
+
+legend {
+    float: left;
+    padding: 0;
+    width: 100%;
+}
+
+.block {
+    margin-bottom: 28px;
+}
+
+.check {
+    align-items: center;
+    display: inline-flex;
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    gap: 5px;
+    margin: 0 10px 4px 0;
+}
+
+.checks {
+    clear: both;
+    display: flex;
+    flex-wrap: wrap;
+    padding-top: 6px;
+}
+
+.field {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.field-label {
+    color: var(--text-secondary);
+    display: block;
+    font-size: .85rem;
+    margin-bottom: 6px;
+}

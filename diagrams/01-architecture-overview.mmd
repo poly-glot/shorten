@@ -1,0 +1,57 @@
+%%{init: {'theme': 'base', 'look': 'classic', 'flowchart': {'defaultRenderer': 'elk', 'curve': 'linear', 'padding': 20, 'nodeSpacing': 72, 'rankSpacing': 60}, 'elk': {'mergeEdges': true, 'nodePlacementStrategy': 'NETWORK_SIMPLEX'}, 'themeVariables': {'primaryColor': '#ffffff', 'primaryTextColor': '#010101', 'primaryBorderColor': '#010101', 'lineColor': '#656565', 'secondaryColor': '#fafafa', 'tertiaryColor': '#ffffff', 'clusterBkg': '#fafafa', 'clusterBorder': '#dddddd', 'edgeLabelBackground': '#ffffff', 'fontFamily': 'Arial', 'fontSize': '14px'}, 'themeCSS': '.nodeLabel, .label, text { font-family: Roboto, Helvetica Neue, Arial, sans-serif !important; } .edgePath .path, .flowchart-link { stroke: #656565 !important; stroke-width: 1.2px !important; } .edgeLabel { color: #656565 !important; font-family: JetBrains Mono, SFMono-Regular, Menlo, monospace !important; font-size: 11px !important; letter-spacing: 0.04em; } .cluster-label { color: #6e6e6e !important; font-family: JetBrains Mono, SFMono-Regular, Menlo, monospace !important; font-size: 11px !important; letter-spacing: 0.12em; text-transform: uppercase; } .cluster rect { rx: 8px; ry: 8px; } .node rect { rx: 6px; ry: 6px; }'}}%%
+
+flowchart TB
+    Viewer["Viewer's browser\nfollows a short link · no account · no cookie"]
+    Creator["Creator's browser\nthe one embedded page · holds the management secret"]
+
+    subgraph AWS["AWS · eu-west-2 · always-free tier"]
+        subgraph Edge["CloudFront · one distribution · standard logging v2"]
+            Distribution["CloudFront distribution\ndefault origin is a function · no default root object"]
+            Segment["shorten-segment\nviewer request · default behaviour · overwrites the querystring with s={segment}"]
+            Router["aws-cloud-router\nviewer request · /api* · strips the /api prefix"]
+        end
+        subgraph Functions["Lambda · Rust · arm64 · provided.al2023"]
+            Redirect["shorten-redirect\ndefault origin · 302 with max-age=300 · GET / serves the embedded page"]
+            Mgmt["shorten-mgmt\nbehind /api* · create, read, edit, delete · stats window"]
+            Rollup["shorten-rollup\n02:15 UTC · one Athena query per day · idempotent and replayable"]
+        end
+        Events["EventBridge rule\ncron(15 2 * * ? *) · a date in the payload replays a night"]
+        Table["DynamoDB aws-cloud table\nshared · shorten# key prefix · 25 provisioned units · TTL on ttl"]
+        LogsBucket["S3 aws-cloud-logs\ngzip W3C · year/month/day · 90-day lifecycle"]
+        Athena["Athena and Glue\ncloudfront_logs · partition projection · 1 GB scan cap"]
+        Logs["CloudWatch Logs + Metrics\nJSON logs of all three functions · no IP, no URL"]
+        Alerts["SNS aws-cloud-alerts\n3 alarms, all billed · email subscription"]
+    end
+
+    Viewer -->|"GET /{code}"| Distribution
+    Creator -->|"GET / and /api/*"| Distribution
+    Distribution -->|"viewer request"| Segment
+    Distribution -->|"viewer request"| Router
+    Segment -->|"cache miss on path + s"| Redirect
+    Router -->|"/links, /links/{code}"| Mgmt
+    Redirect -->|"GetItem shorten#L#{code}"| Table
+    Mgmt -->|"link rows, rate limit, BatchGetItem stats"| Table
+    Distribution -->|"standard logs v2"| LogsBucket
+    LogsBucket -->|"external table"| Athena
+    Athena -->|"code, segment, count where sc_status=302"| Rollup
+    Events -->|"cron(15 2 * * ? *)"| Rollup
+    Rollup -->|"paced writes: stats day, clicks_total"| Table
+    Logs -->|"3 alarms"| Alerts
+
+    style Viewer        fill:#f0f0f0,stroke:#6e6e6e,stroke-width:1px,color:#010101
+    style Creator       fill:#f0f0f0,stroke:#6e6e6e,stroke-width:1px,color:#010101
+    style Distribution  fill:#fef6e8,stroke:#f8a41d,stroke-width:1.5px,color:#010101
+    style Segment       fill:#ffffff,stroke:#010101,stroke-width:1px,color:#010101
+    style Router        fill:#ffffff,stroke:#010101,stroke-width:1px,color:#010101
+    style Redirect      fill:#ffffff,stroke:#010101,stroke-width:1px,color:#010101
+    style Mgmt          fill:#ffffff,stroke:#010101,stroke-width:1px,color:#010101
+    style Rollup        fill:#ffffff,stroke:#010101,stroke-width:1px,color:#010101
+    style Events        fill:#f7f7f7,stroke:#b3b3b3,stroke-width:1px,color:#010101
+    style Table         fill:#f2f2f2,stroke:#656565,stroke-width:1px,color:#010101
+    style LogsBucket    fill:#f7f7f7,stroke:#b3b3b3,stroke-width:1px,color:#010101
+    style Athena        fill:#f7f7f7,stroke:#b3b3b3,stroke-width:1px,color:#010101
+    style Logs          fill:#f7f7f7,stroke:#b3b3b3,stroke-width:1px,color:#010101
+    style Alerts        fill:#f7f7f7,stroke:#b3b3b3,stroke-width:1px,color:#010101
+    style AWS           fill:#fafafa,stroke:#dddddd,stroke-width:1px,color:#6e6e6e
+    style Edge          fill:#ffffff,stroke:#e5e6e6,stroke-width:1px,color:#6e6e6e
+    style Functions     fill:#ffffff,stroke:#e5e6e6,stroke-width:1px,color:#6e6e6e

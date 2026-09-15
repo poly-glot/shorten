@@ -1,0 +1,20 @@
+.notice {
+    border-radius: 3px;
+    margin: 16px 0;
+    padding: 12px 14px;
+}
+
+.notice-error {
+    border: 1px solid var(--danger);
+    color: var(--danger);
+}
+
+.notice-ok {
+    border: 1px solid var(--ok);
+    color: var(--ok);
+}
+
+.notice-warn {
+    border: 1px solid var(--warn);
+    color: var(--warn);
+}

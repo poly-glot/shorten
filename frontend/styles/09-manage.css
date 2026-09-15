@@ -1,0 +1,141 @@
+.confirm {
+    border: 1px solid var(--danger);
+    border-radius: 4px;
+    margin-top: 16px;
+    padding: 14px;
+}
+
+.manage-back {
+    background: none;
+    border: 0;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+    padding: 0;
+
+    &:focus-visible {
+        outline: 2px solid var(--text-primary);
+        outline-offset: 2px;
+    }
+
+    &:hover {
+        color: var(--text-primary);
+    }
+}
+
+.saved {
+    margin-bottom: 28px;
+}
+
+.subtabs {
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+}
+
+@scope (.saved) {
+    .saved-code {
+        color: var(--text-tertiary);
+        font-size: .7rem;
+    }
+
+    .saved-divider {
+        border-top: 1px dashed var(--border);
+        margin-top: 14px;
+        max-width: none;
+        padding-top: 14px;
+    }
+
+    .saved-item {
+        align-items: flex-start;
+        display: flex;
+        gap: 8px;
+    }
+
+    .saved-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        list-style: none;
+        margin: 10px 0 0;
+        padding: 0;
+    }
+
+    .saved-pick {
+        background: var(--bg-offset);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 6px;
+        overflow: hidden;
+        padding: 10px 12px;
+        text-align: left;
+
+        &:focus-visible {
+            outline: 2px solid var(--text-primary);
+            outline-offset: 1px;
+        }
+
+        &:hover {
+            background: var(--bg);
+            border-color: var(--border-strong);
+        }
+
+        &[aria-current="true"] {
+            background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+            border-color: var(--accent);
+        }
+    }
+
+    .saved-target {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+@scope (.stats) {
+    :scope {
+        display: block;
+        margin-top: 36px;
+    }
+
+    table {
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+        width: 100%;
+    }
+
+    td,
+    th {
+        border-bottom: 1px solid var(--border);
+        padding: 7px 10px 7px 0;
+        text-align: left;
+    }
+
+    th {
+        color: var(--text-tertiary);
+        font-size: .75rem;
+        font-weight: 500;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+    }
+
+    .scroll {
+        margin-top: 8px;
+        max-height: 340px;
+        overflow: auto;
+    }
+}
+
+@scope (.subtabs) {
+    .subtabs-delete {
+        margin-left: auto;
+    }
+
+    .subtabs-row {
+        align-items: center;
+        display: flex;
+        gap: 4px;
+    }
+}

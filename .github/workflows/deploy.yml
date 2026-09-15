@@ -1,0 +1,62 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy
+
+env:
+  APP: shorten
+  AWS_REGION: eu-west-2
+  EDGE_FUNCTION: shorten-segment
+  FUNCTIONS: mgmt redirect rollup
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-24.04-arm
+    container: amazonlinux:2023
+
+    steps:
+      - name: Install the build tools
+        run: dnf install -y --setopt=install_weak_deps=False awscli-2 cmake gcc git gzip make tar unzip zip
+
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the functions
+        run: cargo build --release --locked
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Push function code
+        run: |
+          for f in $FUNCTIONS; do
+            cp "target/release/$f" bootstrap && zip -q "$f.zip" bootstrap
+            aws lambda update-function-code --function-name "$APP-$f" --zip-file "fileb://$f.zip" --output text --query LastUpdateStatus
+          done
+
+      - name: Publish the edge function
+        run: |
+          etag=$(aws cloudfront describe-function --name "$EDGE_FUNCTION" --query ETag --output text)
+          aws cloudfront update-function --name "$EDGE_FUNCTION" --if-match "$etag" \
+            --function-config Comment="viewer segment",Runtime=cloudfront-js-2.0 \
+            --function-code "fileb://edge/segment.js" --output text --query FunctionSummary.Status
+          etag=$(aws cloudfront describe-function --name "$EDGE_FUNCTION" --query ETag --output text)
+          aws cloudfront publish-function --name "$EDGE_FUNCTION" --if-match "$etag" --output text --query FunctionSummary.Status

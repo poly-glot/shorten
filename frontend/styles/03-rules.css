@@ -1,0 +1,54 @@
+@scope (.rule-list) {
+    :scope {
+        list-style: none;
+        margin: 12px 0;
+        padding: 0;
+    }
+
+    .rule {
+        background: var(--bg-offset);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        margin-bottom: 12px;
+        padding: 14px;
+    }
+
+    .rule-grid {
+        display: grid;
+        gap: 12px;
+
+        @media (min-width: 640px) {
+            grid-template-columns: 1fr 1fr;
+        }
+    }
+
+    .rule-head {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+    }
+
+    .rule-index {
+        font-size: .75rem;
+        font-weight: 600;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+    }
+
+    .rule-summary {
+        border-top: 1px dashed var(--border);
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        font-size: .75rem;
+        margin: 12px 0 0;
+        overflow-wrap: anywhere;
+        padding-top: 10px;
+    }
+
+    .rule-wide {
+        @media (min-width: 640px) {
+            grid-column: 1 / -1;
+        }
+    }
+}

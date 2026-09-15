@@ -1,0 +1,28 @@
+[package]
+name = "rollup"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "rollup"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rollup"
+path = "src/main.rs"
+
+[dependencies]
+aws-config = { workspace = true }
+aws-sdk-athena = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+chrono = { workspace = true }
+lambda_runtime = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+shared = { path = "../../crates/shared" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+flate2 = { workspace = true }
+shared = { path = "../../crates/shared", features = ["testing"] }

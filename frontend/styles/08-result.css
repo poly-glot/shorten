@@ -1,0 +1,20 @@
+@scope (.result) {
+    :scope {
+        border: 1px solid var(--border-strong);
+        border-radius: 4px;
+        margin-top: 28px;
+        padding: 18px;
+    }
+
+    .copy-row {
+        align-items: end;
+        display: flex;
+        gap: 8px;
+        margin-bottom: 14px;
+    }
+
+    .copy-row .field {
+        flex: 1;
+        margin-bottom: 0;
+    }
+}

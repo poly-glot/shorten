@@ -1,0 +1,31 @@
+.tab {
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    margin-bottom: -1px;
+    padding: 10px 14px;
+
+    &:focus-visible {
+        outline: 2px solid var(--text-primary);
+        outline-offset: -2px;
+    }
+
+    &[aria-pressed="true"] {
+        border-bottom-color: var(--text-primary);
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+}
+
+.tabs {
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+}
+
+@scope (.tabs) {
+    .tabs-row {
+        display: flex;
+        gap: 4px;
+    }
+}
