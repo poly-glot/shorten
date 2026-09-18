@@ -6,13 +6,19 @@ set -euo pipefail
 USAGE="usage: qa/03-log-segment.sh --domain <distribution-domain> [--account <id>] [--wait <seconds>]
 
 Drives traffic through the distribution, waits for the access log to be delivered, prints the
-cs-uri-query field of a real log line verbatim, and asserts the rollup's parser handles the form
-that actually arrived rather than the form the design assumed.
+cs-uri-query field of a real log line verbatim, and asserts the rollup reads what actually
+arrives rather than what the design assumed.
+
+What it pins down is that CloudFront logs the query string the VIEWER sent, not the one the
+viewer-request function wrote: an ordinary click logs '-', so the segment is never in the log and
+every click is counted under the unknown segment. One request carries a query string of its own,
+which the log does record, so both cases sit side by side in one object.
 
   --domain   the CloudFront distribution domain, with or without a scheme
   --account  the AWS account id; read from STS when omitted
   --wait     seconds to wait for log delivery, default 1200"
 
+PROBE_QUERY="probe=03"
 REQUESTS=5
 
 CODE=""
@@ -82,6 +88,9 @@ while [ "$attempt" -lt "$REQUESTS" ]; do
     attempt=$((attempt + 1))
 done
 
+status=$(status_of "$BASE/$CODE?$PROBE_QUERY")
+assert_eq "302" "$status" "the probe request, carrying a query string of its own, redirected"
+
 prefixes=$(python3 -c '
 import datetime
 import sys
@@ -118,43 +127,58 @@ fi
 
 note "log object $(cat "$WORK/hit.key")"
 
-python3 - "$WORK/hit.log" "$CODE" <<'PY' || fail "the delivered cs-uri-query is not a form the rollup parses"
+python3 - "$WORK/hit.log" "$CODE" "$PROBE_QUERY" <<'PY' || fail "the delivered log is not what the rollup reads"
 import sys
 
-path, code = sys.argv[1], sys.argv[2]
+path, code, probe_query = sys.argv[1], sys.argv[2], sys.argv[3]
 
-fields = None
-line = None
+UNKNOWN_SEGMENT = "XX|XX|other|other"
 
 with open(path, encoding="utf-8", errors="replace") as handle:
-    for raw in handle:
-        raw = raw.rstrip("\n")
-        if raw.startswith("#Fields:"):
-            fields = raw.split(":", 1)[1].split()
-            continue
-        if raw.startswith("#") or not raw:
-            continue
-        if "/" + code in raw:
-            line = raw.split("\t")
-            break
+    lines = [line for line in handle.read().split("\n") if line]
 
-if fields is None:
+headers = [line for line in lines if line.startswith("#Fields:")]
+if not headers:
     sys.exit("FAIL  the log object carried no #Fields: header, so no column could be named")
-if line is None:
-    sys.exit("FAIL  the log object mentioned the code but no data line matched it")
 
+fields = headers[0].split(":", 1)[1].split()
 index = dict((name, position) for position, name in enumerate(fields))
 for name in ("cs-uri-stem", "cs-uri-query", "sc-status"):
     if name not in index:
         sys.exit("FAIL  the delivered log format has no %s field" % name)
 
-stem = line[index["cs-uri-stem"]]
-query = line[index["cs-uri-query"]]
-status = line[index["sc-status"]]
+STEM, QUERY, STATUS = index["cs-uri-stem"], index["cs-uri-query"], index["sc-status"]
+WIDTH = max(STEM, QUERY, STATUS)
 
-print("      cs-uri-stem  %r" % stem)
-print("      cs-uri-query %r" % query)
-print("      sc-status    %r" % status)
+data = [line.split("\t") for line in lines if not line.startswith("#")]
+clicks = [line for line in data if len(line) > WIDTH and line[STEM] == "/" + code]
+if not clicks:
+    sys.exit("FAIL  the log object mentioned the code but no data line requested /%s" % code)
+
+plain = [line for line in clicks if line[QUERY] != probe_query]
+probed = [line for line in clicks if line[QUERY] == probe_query]
+
+
+def segment_of(query):
+    if not query.startswith("s="):
+        return None
+
+    segment = query[2:]
+    if "%" in segment:
+        segment = segment.replace("%7C", "|").replace("%7c", "|")
+
+    parts = segment.split("|")
+
+    return segment if len(parts) == 4 and all(parts) else None
+
+
+def segment_or_unknown(query):
+    return segment_of(query) or UNKNOWN_SEGMENT
+
+
+print("      cs-uri-stem   %r" % clicks[0][STEM])
+print("      cs-uri-query  %r  (an ordinary click)" % (plain[0][QUERY] if plain else None))
+print("      cs-uri-query  %r  (the probe click, which sent ?%s)" % (probed[0][QUERY] if probed else None, probe_query))
 
 failures = 0
 
@@ -168,21 +192,16 @@ def check(condition, message):
         failures += 1
 
 
-check(stem == "/" + code, "cs-uri-stem is the bare path the rollup strips a leading slash from")
-check(status == "302", "the redirect is logged with sc-status 302, which is the rollup's only filter")
-
-check(query.startswith("s="), "cs-uri-query is exactly the s= parameter the edge function wrote")
-
-segment = query[2:] if query.startswith("s=") else query
-spelling = "percent-encoded %7C" if "%7C" in segment or "%7c" in segment else "literal |"
-print("      separator arrived as: " + spelling)
-
-if "%" in segment:
-    segment = segment.replace("%7C", "|").replace("%7c", "|")
-
-parts = segment.split("|")
-check(len(parts) == 4 and all(parts),
-      "the rollup's decode-then-split yields four non-empty dimensions from the delivered form")
+check(all(line[STATUS] == "302" for line in clicks),
+      "every logged click is sc-status 302, which is the rollup's only filter")
+check(bool(plain), "an ordinary click reached the log")
+check(bool(probed), "the probe click reached the log")
+check(bool(probed) and probed[0][QUERY] == probe_query,
+      "cs-uri-query is the query string the viewer sent, recorded verbatim")
+check(bool(plain) and segment_of(plain[0][QUERY]) is None,
+      "an ordinary click carries no segment: the edge function's querystring rewrite is not logged")
+check(bool(plain) and segment_or_unknown(plain[0][QUERY]) == UNKNOWN_SEGMENT,
+      "the rollup counts that click under the unknown segment rather than discarding it")
 
 sys.exit(1 if failures else 0)
 PY

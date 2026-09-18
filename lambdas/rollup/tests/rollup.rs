@@ -142,17 +142,18 @@ async fn a_fixture_day_writes_the_exact_per_code_and_per_segment_counts() {
     assert_eq!(
         summary,
         Summary {
-            clicks: 11,
+            clicks: 14,
             codes: 3,
             days_advanced: 2,
-            discarded_clicks: 5,
+            discarded_clicks: 2,
             rows: 12,
+            unsegmented_clicks: 3,
         },
         "the summary counts what it read and what it wrote"
     );
     assert_eq!(
         (busiest.clicks, segments(&busiest)),
-        (6, vec![("IN|MH|android|mobile", 5), ("US|CA|ios|tablet", 1)]),
+        (9, vec![("IN|MH|android|mobile", 5), ("US|CA|ios|tablet", 1), ("XX|XX|other|other", 3)]),
         "the busiest link keeps a count per segment, whichever way cloudfront encoded it"
     );
     assert_eq!(
@@ -162,7 +163,7 @@ async fn a_fixture_day_writes_the_exact_per_code_and_per_segment_counts() {
     );
     assert_eq!(
         (clicks_total(&repo, "aB3xK9mQ2p").await, clicks_total(&repo, "Zq7wLn4Tf1").await),
-        (6, 4),
+        (9, 4),
         "each link's running total is its day total"
     );
 }
@@ -185,7 +186,7 @@ async fn a_second_invocation_of_the_same_day_changes_nothing() {
     assert_eq!(after_second, after_first, "the stats item is identical after a replay");
     assert_eq!(
         (clicks_total(&repo, "aB3xK9mQ2p").await, total_after_first),
-        (6, 6),
+        (9, 9),
         "the running total does not double count"
     );
     assert_eq!(
@@ -208,12 +209,12 @@ async fn a_rollup_for_an_older_date_after_a_newer_one_leaves_the_running_total_a
 
     assert_eq!(
         (clicks_total(&repo, "aB3xK9mQ2p").await, backdated.days_advanced),
-        (6, 0),
+        (9, 0),
         "a backfill of an earlier day never adds to the total again"
     );
     assert_eq!(
         stats(&repo, "aB3xK9mQ2p", older).await.map(|day| day.clicks),
-        Some(6),
+        Some(9),
         "the earlier day still gets its own stats item"
     );
 }
@@ -239,7 +240,7 @@ async fn a_code_with_no_link_gets_its_stats_day_without_resurrecting_the_link() 
 }
 
 #[tokio::test]
-async fn a_bad_code_or_a_malformed_segment_is_discarded_rather_than_counted() {
+async fn a_malformed_segment_counts_under_the_unknown_segment_rather_than_vanishing() {
     let Some(repo) = local_repo("rollup-test").await else {
         return;
     };
@@ -248,14 +249,29 @@ async fn a_bad_code_or_a_malformed_segment_is_discarded_rather_than_counted() {
     unpaced(repo.clone()).run(day()).await.expect("rollup");
 
     let busiest = stats(&repo, "aB3xK9mQ2p", day()).await.expect("a stats day");
-    let discarded_segments: Vec<&str> = segments(&busiest)
+    let raw_segments: Vec<&str> = segments(&busiest)
         .into_iter()
         .map(|(segment, _)| segment)
         .filter(|segment| ["IN%7CMH%7Candroid", "IN|MH|android", "code=aB3xK9mQ2p"].contains(segment))
         .collect();
+    let unknown = segments(&busiest).into_iter().find(|(segment, _)| *segment == "XX|XX|other|other");
 
-    assert_eq!(discarded_segments, Vec::<&str>::new(), "a malformed segment never becomes a key");
-    assert_eq!(busiest.clicks, 6, "the three unusable rows for this code are not in its total");
+    assert_eq!(raw_segments, Vec::<&str>::new(), "a malformed segment never becomes a key");
+    assert_eq!(
+        (busiest.clicks, unknown),
+        (9, Some(("XX|XX|other|other", 3))),
+        "the three unsegmented rows for this code are counted under the unknown segment"
+    );
+}
+
+#[tokio::test]
+async fn a_path_that_is_not_a_code_gets_no_stats_item() {
+    let Some(repo) = local_repo("rollup-test").await else {
+        return;
+    };
+
+    unpaced(repo.clone()).run(day()).await.expect("rollup");
+
     assert_eq!(
         repo.get_stats_days("short", day(), day()).await.expect("get stats days"),
         Vec::new(),

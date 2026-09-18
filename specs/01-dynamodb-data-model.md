@@ -254,8 +254,12 @@ payload may name a date instead, which is how a missed or suspect night is repla
    segment from `cs_uri_query`, and groups by both. The workgroup caps any single query at 1 GB scanned, so a query that forgot
    its partition predicate fails rather than bills.
 2. The function polls the query's state until it succeeds or fails, then reads the result rows.
-3. For each code, the day's rows become one stats row: `clicks` the day's total, `seg` the per-segment counts. The row is put
-   whole, which overwrites whatever a previous run wrote. That is the first half of idempotency.
+3. For each code, the day's rows become one stats row: `clicks` the day's total, `seg` the per-segment counts. A row whose path
+   is not a well-formed code is discarded, which is where the frontend, `/api*` and a dictionary walk all land. A row whose
+   query string carries no readable segment is not discarded: its clicks count towards the code's total under the unknown
+   segment `XX|XX|other|other`, because a click whose dimensions were lost is still a click. The summary and the log line
+   report the two separately, as `discarded_clicks` and `unsegmented_clicks`. The row is put whole, which overwrites whatever a
+   previous run wrote. That is the first half of idempotency.
 4. Each link row is then advanced with `ADD clicks_total :day_total`, guarded by
    `attribute_not_exists(last_rollup) OR last_rollup < :date`, and the same update sets `last_rollup` to the date. That is the
    second half: a re-run of the same date fails the condition and adds nothing, and a link deleted since the clicks happened
@@ -309,8 +313,9 @@ this repository deploys code only.
 
 - **Incoming query strings are discarded at the edge.** The viewer-request function overwrites the request's query string with
   `s={segment}`, so `https://short.example/aB3xK9mQ2p?utm_source=x` reaches the origin as `?s=IN|MH|android|mobile` and the
-  target is followed without the `utm_source`. This is a stated non-goal of v1, not an oversight: the segment has to be in
-  `cs-uri-query` for the log-based analytics to work at all, and it has to be in the cache key for the cache to be segment-aware.
+  target is followed without the `utm_source`. This is a stated non-goal of v1, not an oversight: the segment has to be in the
+  cache key for the cache to be segment-aware, and in the origin request for the redirect to resolve a rule against it. It does
+  not reach the access log, which is the ceiling below.
   What breaks is campaign tagging, which is exactly what a shortener is often used for. The upgrade path is to encode the
   original query alongside the segment — `s={segment}&q={percent-encoded original}` — keep only `s` in the cache key so
   fragmentation does not change, and have the redirect function append the decoded `q` to the resolved target.
@@ -322,6 +327,19 @@ this repository deploys code only.
   genuinely global: every new region-platform-device combination is a cache miss and an origin read. The lever is already built —
   `SEGMENT_INCLUDE_REGION` in `edge/segment.js` collapses the region to `XX` at the edge and divides the key space by the region
   count — at the price of region rules no longer matching anything. Flipping it is a one-line change and a function publish.
+
+- **The segment never reaches the access log, so every click is counted unsegmented.** The viewer-request function rewrites
+  `request.querystring`, which decides the cache key and what the origin receives — but CloudFront's access log records the
+  query string as the viewer sent it. An ordinary click therefore logs `cs-uri-query` as `-`, and the four dimensions the
+  segment design exists to produce are not in the data the rollup reads. Measured against the deployed stack on 2026-09-18: two
+  probe requests sent with `?s=zzzz` and `?foo=bar` appear in the log verbatim, while every ordinary click on the same link in
+  the same minute logs `-`, and the rollup's own Athena query for 2026-09-17 returned the single row
+  `(/lYBtPqhqTm, -, 1)`. The design assumed a viewer-request rewrite would be logged, and it is not. What works meanwhile is
+  every total: daily clicks, the 90-day window and each link's lifetime count are right, and the whole segment breakdown reads
+  `XX|XX|other|other`. The upgrade path is to stop deriving the segment at the edge and take it from what CloudFront logs on its
+  own: `record_fields` on the `aws-cloud` log delivery can add `c-country`, and platform and device can be derived in the query
+  from `cs(User-Agent)`, which is already on every line — one Glue schema change and one rollup query change, made together.
+  The alternative is CloudFront real-time logs, which is the same upgrade path as live analytics and is billed either way.
 
 - **Analytics are next-day, not live.** A click that happens at 02:20 UTC appears in the dashboard after the following night's
   rollup, a little over twenty-four hours later. This follows directly from putting Athena, a batch engine, out of the request

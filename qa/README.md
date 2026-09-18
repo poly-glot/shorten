@@ -8,9 +8,9 @@ They exist because five things about this design cannot be settled anywhere but 
 the five fail *silently*: the redirects keep working, the dashboard stays empty, and nothing errors
 anywhere. The open questions are listed at the end of this file with the script that closes each.
 
-**None of these scripts has been run against real infrastructure.** Nothing is deployed. They are written
-and syntax-checked; their argument handling and their offline parsing paths have been exercised, and their
-AWS and HTTP paths have not.
+**`04-log-prefix.sh` has been run against the deployed stack, on 2026-09-18, and passes.** The rest have
+not: they are written and syntax-checked, their argument handling and their offline parsing paths have been
+exercised, and their AWS and HTTP paths have not.
 
 ## Running them
 
@@ -84,24 +84,29 @@ Two caveats worth knowing before reading a failure: the country assertion is onl
 machine running it has a geolocatable address, and the cache assertion assumes both requests reached the
 same edge location, which is normal from one host but not guaranteed.
 
-### `03-log-segment.sh` — which spelling of `|` actually arrives
+### `03-log-segment.sh` — whose query string the log records
 
-Closes **open question 1**. Creates a link, drives five redirects through the distribution, then polls the
-logs bucket until a delivered object mentions that code, and prints the `cs-uri-query` field **verbatim**.
+Closes **open question 1**, whose answer turned out to make the question moot. Creates a link, drives five
+plain redirects and one carrying `?probe=03` through the distribution, then polls the logs bucket until a
+delivered object mentions that code, and prints the `cs-uri-query` field of both **verbatim**.
 
-It reads the column positions from the file's own `#Fields:` header rather than assuming an order, then
+It reads the column positions from the file's own `#Fields:` header rather than assuming an order, matches
+on the `cs-uri-stem` column so an `/api*` line for the same code cannot be mistaken for a click, then
 applies the rollup's own parse — strip `s=`, percent-decode `%7C` and `%7c` only when a `%` is present,
-split on `|` — and asserts the result is four non-empty dimensions.
+split on `|` — and the rollup's own fallback when that yields nothing.
 
 | Assertion | What a failure means |
 |---|---|
 | `cs-uri-stem` is `/{code}` | the rollup's `strip_prefix('/')` will not find the code |
 | `sc-status` is `302` | the rollup filters on `sc_status = 302` and would drop every row |
-| `cs-uri-query` is exactly `s=…` | the rollup strips `s=` from the whole field; another parameter in front of it makes every row malformed |
-| the delivered form yields four non-empty dimensions | **this is the silent failure**: a `%7C` spelling that a naive split on `|` returns as one field means every row is discarded, the dashboard stays empty forever, and nothing logs an error |
+| the probe click's `cs-uri-query` is exactly what the viewer sent | the log is not a record of the viewer's request, and everything below is reasoning about the wrong data |
+| an ordinary click's `cs-uri-query` carries no segment | **AWS changed something**: the viewer-request function's querystring rewrite has started reaching the log, which would mean real segments are available again and the ceiling in `specs/01-dynamodb-data-model.md` should be revisited and closed |
+| the rollup counts that click under `XX\|XX\|other\|other` | a click whose dimensions were lost is being discarded rather than counted, which is the bug of 2026-09-18: totals read zero and nothing errors |
 
-The rollup tolerates both spellings, so this is a confirmation rather than a gamble. It is recorded
-anyway, because "the parser is broken" and "there was no traffic" look identical from a dashboard.
+The last two are the point of the script. The segment the edge function derives is **not** in the access
+log and never was — CloudFront records the query string the viewer sent — so the dimensions are lost and
+only the totals survive. "the parser is broken", "the segment never arrived" and "there was no traffic"
+look identical from a dashboard, and this is what tells them apart.
 
 Log delivery lags. The default wait is twenty minutes (`--wait 1200`); CloudFront's documented worst case
 is longer, so a failure here should be retried with a larger `--wait` before it is believed.
@@ -174,7 +179,7 @@ stopped being enforced, a fourth alarm.
 
 | # | Question | Closed by |
 |---|---|---|
-| 1 | Does `\|` reach the log as a literal or as `%7C`? | `03-log-segment.sh`, which prints the delivered `cs-uri-query` verbatim and asserts the rollup's parse handles it |
+| 1 | ~~Does `\|` reach the log as a literal or as `%7C`?~~ **Answered 2026-09-18: neither.** CloudFront logs the query string the viewer sent, so the segment never reaches the log at all and every click counts as unsegmented | `03-log-segment.sh`, which now prints an ordinary click's `cs-uri-query` and a probe click's side by side, and asserts the rollup counts rather than discards the first |
 | 2 | Is the delivered S3 prefix the one Glue projects? | `04-log-prefix.sh`, against both the objects and the table's own projection template |
 | 3 | Do the `CloudFront-*` headers reach the viewer-request function? | `02-edge-cache.sh`, by making the resolved target reveal the derived segment — including a non-`XX` country |
 | 4 | Does the second request per segment hit the cache? | `02-edge-cache.sh`, asserting `x-cache: Hit from cloudfront` |

@@ -8,7 +8,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use shared::code;
 use shared::error::AppError;
-use shared::segment::SEPARATOR;
+use shared::segment::{SEPARATOR, Segment};
 use shared::stats::{StatsDay, ttl_of};
 use shared::table::{DynamoRepo, backoff};
 
@@ -44,6 +44,7 @@ pub struct Summary {
     pub days_advanced: usize,
     pub discarded_clicks: u64,
     pub rows: usize,
+    pub unsegmented_clicks: u64,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -56,6 +57,7 @@ pub struct Counted {
 pub struct Aggregated {
     pub codes: BTreeMap<String, Counted>,
     pub discarded_clicks: u64,
+    pub unsegmented_clicks: u64,
 }
 
 pub fn previous_day(now: DateTime<Utc>) -> NaiveDate {
@@ -97,9 +99,17 @@ pub fn aggregate(rows: &[LogRow]) -> Aggregated {
     let mut aggregated = Aggregated::default();
 
     for row in rows {
-        let (Some(code), Some(segment)) = (link_code(&row.uri_stem), segment_of(&row.uri_query)) else {
+        let Some(code) = link_code(&row.uri_stem) else {
             aggregated.discarded_clicks += row.clicks;
             continue;
+        };
+
+        let segment = match segment_of(&row.uri_query) {
+            Some(segment) => segment,
+            None => {
+                aggregated.unsegmented_clicks += row.clicks;
+                Cow::Owned(Segment::UNKNOWN.to_string())
+            }
         };
 
         let counted = aggregated.codes.entry(code.to_string()).or_default();
@@ -170,15 +180,17 @@ impl<S: LogSource> Rollup<S> {
             codes: aggregated.codes.len(),
             discarded_clicks: aggregated.discarded_clicks,
             rows: rows.len(),
+            unsegmented_clicks: aggregated.unsegmented_clicks,
             ..Summary::default()
         };
 
-        if summary.discarded_clicks > 0 {
+        if summary.discarded_clicks > 0 || summary.unsegmented_clicks > 0 {
             tracing::warn!(
                 date = %date,
                 discarded_clicks = summary.discarded_clicks,
-                outcome = "discarded",
+                outcome = "incomplete",
                 rows = summary.rows,
+                unsegmented_clicks = summary.unsegmented_clicks,
             );
         }
 
@@ -201,6 +213,7 @@ impl<S: LogSource> Rollup<S> {
             discarded_clicks = summary.discarded_clicks,
             outcome = "rolled_up",
             rows = summary.rows,
+            unsegmented_clicks = summary.unsegmented_clicks,
         );
 
         Ok(summary)
@@ -375,22 +388,49 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_discards_a_row_whose_code_or_segment_is_unusable() {
+    fn aggregate_discards_a_row_whose_path_is_not_a_code() {
         let cases = [
             ("a path that is not a code", row("/short", "s=IN|MH|android|mobile", 7)),
             ("a traversal attempt", row("/../../etc/pwd", "s=IN|MH|android|mobile", 7)),
             ("the frontend root", row("/", "s=IN|MH|android|mobile", 7)),
             ("an api path", row("/api/links", "s=IN|MH|android|mobile", 7)),
-            ("a segment short of four fields", row("/aB3xK9mQ2p", "s=IN|MH|android", 7)),
-            ("a percent encoded segment short of four fields", row("/aB3xK9mQ2p", "s=IN%7CMH%7Candroid", 7)),
-            ("a segment with an empty field", row("/aB3xK9mQ2p", "s=IN||android|mobile", 7)),
-            ("a querystring that is not a segment", row("/aB3xK9mQ2p", "code=aB3xK9mQ2p", 7)),
-            ("no querystring at all", row("/aB3xK9mQ2p", "-", 7)),
         ];
 
         for (label, discarded) in cases {
             let aggregated = aggregate(&[discarded]);
-            assert_eq!((aggregated.codes.len(), aggregated.discarded_clicks), (0, 7), "{label}: the row was counted");
+            assert_eq!(
+                (aggregated.codes.len(), aggregated.discarded_clicks, aggregated.unsegmented_clicks),
+                (0, 7, 0),
+                "{label}: the row was counted"
+            );
+        }
+    }
+
+    #[test]
+    fn aggregate_counts_a_click_whose_segment_never_reached_the_log_under_the_unknown_segment() {
+        let cases = [
+            (
+                "no querystring at all, which is what cloudfront logs for every real click",
+                row("/aB3xK9mQ2p", "-", 7),
+            ),
+            ("a segment short of four fields", row("/aB3xK9mQ2p", "s=IN|MH|android", 7)),
+            ("a percent encoded segment short of four fields", row("/aB3xK9mQ2p", "s=IN%7CMH%7Candroid", 7)),
+            ("a segment with an empty field", row("/aB3xK9mQ2p", "s=IN||android|mobile", 7)),
+            ("a querystring that is not a segment", row("/aB3xK9mQ2p", "code=aB3xK9mQ2p", 7)),
+        ];
+
+        for (label, unsegmented) in cases {
+            let aggregated = aggregate(&[unsegmented]);
+            assert_eq!(
+                (
+                    clicks(&aggregated, "aB3xK9mQ2p"),
+                    counts(&aggregated, "aB3xK9mQ2p"),
+                    aggregated.discarded_clicks,
+                    aggregated.unsegmented_clicks
+                ),
+                (7, vec![(Segment::UNKNOWN.to_string(), 7)], 0, 7),
+                "{label}"
+            );
         }
     }
 
@@ -405,9 +445,14 @@ mod tests {
         let aggregated = aggregate(&rows);
 
         assert_eq!(
-            (aggregated.codes.len(), clicks(&aggregated, "aB3xK9mQ2p"), aggregated.discarded_clicks),
-            (1, 3, 14),
-            "the well-formed row survives and the rest are counted as lost"
+            (
+                aggregated.codes.len(),
+                clicks(&aggregated, "aB3xK9mQ2p"),
+                aggregated.discarded_clicks,
+                aggregated.unsegmented_clicks
+            ),
+            (1, 10, 7, 7),
+            "only the row with no code is lost, and the row with no segment still counts"
         );
     }
 

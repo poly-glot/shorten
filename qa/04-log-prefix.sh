@@ -19,7 +19,7 @@ PREFIX="AWSLogs/$ACCOUNT/CloudFront/"
 EXPECTED_LOCATION="s3://$BUCKET/$PREFIX"
 EXPECTED_TEMPLATE="s3://$BUCKET/${PREFIX}\${year}/\${month}/\${day}"
 
-delivered=$(aws s3 ls "s3://$BUCKET/" --recursive | head -n 20 || true)
+delivered=$(aws s3 ls "s3://$BUCKET/" --recursive | sed -n '1,20p' || true)
 
 if [ -z "$delivered" ]; then
     fail "s3://$BUCKET/ is empty: no CloudFront log has been delivered yet, so the prefix cannot be confirmed"
@@ -46,7 +46,7 @@ projection=$(aws glue get-table --database-name "$GLUE_DATABASE" --name "$GLUE_T
     --query 'Table.Parameters."projection.enabled"' --output text)
 assert_eq "true" "$projection" "partition projection is enabled, so no crawler runs and bills"
 
-dated_key=$(printf '%s\n' "$delivered" | awk -v prefix="$PREFIX" '$4 ~ "^" prefix { print $4; exit }')
+dated_key=$(printf '%s\n' "$delivered" | awk -v prefix="$PREFIX" '$4 ~ "^" prefix && $4 != prefix { print $4; exit }')
 day_path=${dated_key#"$PREFIX"}
 matches_template=$(printf '%s' "$day_path" | awk -F/ '{ print (NF >= 4 && $1 ~ /^[0-9][0-9][0-9][0-9]$/ && $2 ~ /^[0-9][0-9]$/ && $3 ~ /^[0-9][0-9]$/ ? "yes" : "no") }')
 assert_eq "yes" "$matches_template" "the delivered key continues yyyy/MM/dd, matching the projected digit widths ($day_path)"
